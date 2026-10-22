@@ -68,3 +68,29 @@ class Vote(Base):
     material_id: Mapped[int] = mapped_column(ForeignKey("materials.id", ondelete="CASCADE"), primary_key=True)
     value: Mapped[int] = mapped_column(Integer, nullable=False)  # -1 or +1
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+class Thread(Base):
+    __tablename__ = "threads"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    # Категории: teachers | specific_people | solutions | free
+    category: Mapped[str] = mapped_column(String(50), default="free", index=True)
+    
+    author_hash: Mapped[str | None] = mapped_column(ForeignKey("anonymous_users.token_hash"), nullable=True)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    posts: Mapped[list["Post"]] = relationship(back_populates="thread", cascade="all, delete-orphan")
+
+class Post(Base):
+    __tablename__ = "posts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    thread_id: Mapped[int] = mapped_column(ForeignKey("threads.id", ondelete="CASCADE"), index=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    
+    author_hash: Mapped[str | None] = mapped_column(ForeignKey("anonymous_users.token_hash"), nullable=True)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    thread: Mapped[Thread] = relationship(back_populates="posts")

@@ -43,3 +43,40 @@ export async function uploadMaterial(formData: FormData) {
 
   return res.json();
 }
+
+// --- ФОРУМ ---
+
+export async function getThreads(category?: string) {
+  const url = category ? `/api/threads?category=${category}` : '/api/threads';
+  const res = await fetch(url, { credentials: 'include' });
+  if (!res.ok) throw new Error('Failed to fetch threads');
+  return res.json();
+}
+
+export async function getThread(id: number) {
+  const res = await fetch(`/api/threads/${id}`, { credentials: 'include' });
+  if (!res.ok) throw new Error('Thread not found');
+  return res.json();
+}
+
+export async function createThread(data: { title: string; category: string; first_post: string }) {
+  const res = await fetch('/api/threads', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+    credentials: 'include',
+  });
+  if (!res.ok) throw new Error('Failed to create thread');
+  return res.json();
+}
+
+export async function createPost(threadId: number, content: string) {
+  const res = await fetch(`/api/threads/${threadId}/posts`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
+    credentials: 'include',
+  });
+  if (!res.ok) throw new Error('Failed to create post');
+  return res.json();
+}

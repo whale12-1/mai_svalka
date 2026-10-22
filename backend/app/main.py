@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .routers import materials, search, votes, auth
+from .routers import materials, search, votes, auth, threads # <-- Добавили threads
 
 app = FastAPI(title="Student Hub API")
 
@@ -16,6 +16,7 @@ app.include_router(materials.router)
 app.include_router(search.router)
 app.include_router(votes.router)
 app.include_router(auth.router)
+app.include_router(threads.router) # <-- Подключили
 
 @app.get("/health")
 async def health():

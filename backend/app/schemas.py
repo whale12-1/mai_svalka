@@ -42,3 +42,25 @@ class SearchResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class PostCreate(BaseModel):
+    content: str = Field(..., min_length=1)
+
+class PostOut(BaseModel):
+    id: int
+    content: str
+    created_at: datetime
+
+class ThreadCreate(BaseModel):
+    title: str = Field(..., max_length=300)
+    category: str = "free"
+    first_post: str = Field("", description="Текст первого сообщения")
+
+class ThreadOut(BaseModel):
+    id: int
+    title: str
+    category: str
+    created_at: datetime
+    updated_at: datetime
+    posts: list[PostOut] = []
