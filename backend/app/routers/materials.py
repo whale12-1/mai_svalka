@@ -27,7 +27,7 @@ async def create_material(
     tags: str = Form(""),  # comma-separated
     
     # ВОТ ГЛАВНОЕ ИЗМЕНЕНИЕ: Убираем list, делаем просто ОДИН файл
-    file: UploadFile | None = File(None), 
+    files: list[UploadFile] = File(default=[]), 
     
     db: AsyncSession = Depends(get_db),
     user: AnonymousUser = Depends(current_user),
@@ -43,16 +43,17 @@ async def create_material(
     await db.flush()
 
     # Обрабатываем ОДИН файл
-    if file:
-        data = await file.read()
-        key = f"{uuid.uuid4().hex}/{file.filename}"
-        storage.upload(key, data, file.content_type or "application/octet-stream")
-        db.add(MaterialFile(
-            material_id=m.id, filename=file.filename,
-            storage_key=key, size=len(data),
-            mime_type=file.content_type or "application/octet-stream",
-        ))
-
+    if files:
+        for f in files:
+            data = await f.read()
+            key = f"{uuid.uuid4().hex}/{f.filename}"
+            storage.upload(key, data, f.content_type or "application/octet-stream")
+            db.add(MaterialFile(
+                material_id=m.id, filename=f.filename,
+                storage_key=key, size=len(data),
+                mime_type=f.content_type or "application/octet-stream",
+            ))
+            
     # обновляем tsvector для FTS
     await db.execute(text(
         "UPDATE materials SET search_tsv = to_tsvector('simple', coalesce(title,'') || ' ' || coalesce(description,'') || ' ' || coalesce(discipline,'')) WHERE id = :id"

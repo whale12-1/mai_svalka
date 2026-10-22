@@ -17,23 +17,47 @@ export default function SearchPage() {
   }
 
   return (
-    <div style={{ maxWidth: 900, margin: "40px auto", fontFamily: "system-ui" }}>
-      <h1>Студенческий хаб</h1>
-      <form onSubmit={run} style={{ display: "flex", gap: 8 }}>
-        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Найти лабораторную, билет, отчёт…"
-               style={{ flex: 1, padding: 12, fontSize: 16, border: "1px solid #ccc", borderRadius: 6 }} />
-        <button type="submit" disabled={loading} style={{ padding: "12px 24px", fontSize: 16 }}>Найти</button>
+    <div className="max-w-3xl mx-auto px-4 pt-20 pb-10">
+      <h1 className="text-4xl font-extrabold text-center mb-8 text-gray-900">
+        Найди то, что нужно
+      </h1>
+      
+      <form onSubmit={run} className="flex gap-2 mb-12">
+        <input 
+          value={q} 
+          onChange={e => setQ(e.target.value)} 
+          placeholder="Лабораторная по матанализу, билет по физике..."
+          className="flex-1 px-5 py-4 text-lg border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+        />
+        <button 
+          type="submit" 
+          disabled={loading}
+          className="px-8 py-4 bg-gray-900 text-white text-lg font-medium rounded-lg hover:bg-gray-800 disabled:opacity-50 transition-colors"
+        >
+          {loading ? "..." : "Найти"}
+        </button>
       </form>
-      <ul style={{ listStyle: "none", padding: 0, marginTop: 24 }}>
+
+      <div className="space-y-4">
+        {items.length === 0 && !loading && q && (
+          <p className="text-center text-gray-500 py-10">Ничего не найдено. Попробуйте изменить запрос.</p>
+        )}
+        
         {items.map((m: any) => (
-          <li key={m.id} style={{ padding: "12px 0", borderBottom: "1px solid #eee" }}>
-            <Link to={`/m/${m.id}`} style={{ fontSize: 18 }}>{m.title}</Link>
-            <div style={{ color: "#666", fontSize: 13 }}>
-              {m.discipline} · {m.type} · score: {m.score}
+          <Link 
+            to={`/m/${m.id}`} 
+            key={m.id} 
+            className="block p-5 bg-white border border-gray-200 rounded-lg hover:shadow-md transition-shadow"
+          >
+            <h2 className="text-xl font-semibold text-blue-600 mb-1">{m.title}</h2>
+            <div className="text-sm text-gray-500 flex gap-3">
+              <span className="bg-gray-100 px-2 py-1 rounded">{m.discipline || "Без дисциплины"}</span>
+              <span className="bg-gray-100 px-2 py-1 rounded">{m.type}</span>
+              <span>Рейтинг: {m.score}</span>
             </div>
-          </li>
+          </Link>
         ))}
-      </ul>
+      </div>
     </div>
   );
 }
