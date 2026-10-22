@@ -1,5 +1,6 @@
+import re
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select, text
+from sqlalchemy import select, text, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..db import get_db
 from ..schemas import SearchResponse, MaterialListOut
@@ -19,43 +20,50 @@ async def search(
 ):
     offset = (page - 1) * page_size
 
-    # FTS: если есть строка — ранжируем по ts_rank, иначе по свежести
+    # 1. Базовый запрос (SELECT * FROM materials)
+    stmt = select(Material)
+
+    # 2. Добавляем полнотекстовый поиск, если есть запрос
     if q.strip():
-        sql = text("""
-            SELECT id, title, discipline, type, tags, score, created_at
-            FROM materials
-            WHERE search_tsv @@ plainto_tsquery('russian', :q)
-              AND (:discipline IS NULL OR discipline = :discipline)
-              AND (:type IS NULL OR type = :type)
-              AND (:course IS NULL OR course = :course)
-            ORDER BY ts_rank(search_tsv, plainto_tsquery('russian', :q)) DESC, created_at DESC
-            LIMIT :lim OFFSET :off
-        """)
-        params = dict(q=q, discipline=discipline, type=type, course=course, lim=page_size, off=offset)
-        rows = (await db.execute(sql, params)).all()
-
-        count_sql = text("""
-            SELECT count(*) FROM materials
-            WHERE search_tsv @@ plainto_tsquery('russian', :q)
-              AND (:discipline IS NULL OR discipline = :discipline)
-              AND (:type IS NULL OR type = :type)
-              AND (:course IS NULL OR course = :course)
-        """)
-        total = (await db.execute(count_sql, params)).scalar_one()
+        clean_q = re.sub(r'[^\w\s]', '', q, flags=re.UNICODE)
+        
+        if clean_q.strip():
+            search_query = " & ".join([f"{word}:*" for word in clean_q.split()])
+            
+            # Используем text() только для FTS-условия, привязывая параметр :q
+            stmt = stmt.where(text("search_tsv @@ to_tsquery('simple', :q)").bindparams(q=search_query))
+            # Сортируем по релевантности (рангу)
+            stmt = stmt.order_by(text("ts_rank(search_tsv, to_tsquery('simple', :q)) DESC").bindparams(q=search_query))
+        else:
+            # Если ввели только спецсимволы, возвращаем пустоту
+            return SearchResponse(items=[], total=0, page=page, page_size=page_size)
     else:
-        stmt = select(Material).order_by(Material.created_at.desc())
-        if discipline: stmt = stmt.where(Material.discipline == discipline)
-        if type: stmt = stmt.where(Material.type == type)
-        if course: stmt = stmt.where(Material.course == course)
-        stmt = stmt.offset(offset).limit(page_size)
-        rows = [(m.id, m.title, m.discipline, m.type, m.tags, m.score, m.created_at)
-                for m in (await db.execute(stmt)).scalars()]
-        # total опустим для краткости — сделаем отдельный count в следующей итерации
+        # Если поиска нет, сортируем по дате добавления
+        stmt = stmt.order_by(Material.created_at.desc())
 
+    # 3. Динамически добавляем фильтры (если они не None)
+    if discipline:
+        stmt = stmt.where(Material.discipline == discipline)
+    if type:
+        stmt = stmt.where(Material.type == type)
+    if course:
+        stmt = stmt.where(Material.course == course)
+
+    # 4. Считаем общее количество строк (для пагинации)
+    # Оборачиваем наш запрос в подзапрос и считаем
+    count_stmt = select(func.count()).select_from(stmt.subquery())
+    total = (await db.execute(count_stmt)).scalar_one()
+
+    # 5. Применяем лимит и смещение, выполняем запрос
+    stmt = stmt.offset(offset).limit(page_size)
+    materials = (await db.execute(stmt)).scalars().all()
+
+    # 6. Формируем ответ
     items = [
         MaterialListOut(
-            id=r[0], title=r[1], discipline=r[2], type=r[3],
-            tags=r[4] or [], score=r[5], created_at=r[6],
-        ) for r in rows
+            id=m.id, title=m.title, discipline=m.discipline, type=m.type,
+            tags=m.tags or [], score=m.score, created_at=m.created_at,
+        ) for m in materials
     ]
-    return SearchResponse(items=items, total=len(items) if not q else total, page=page, page_size=page_size)
+    
+    return SearchResponse(items=items, total=total, page=page, page_size=page_size)

@@ -19,9 +19,3 @@ def client() -> Minio:
 
 def upload(key: str, data: bytes, content_type: str) -> None:
     client().put_object(settings.minio_bucket, key, io.BytesIO(data), len(data), content_type=content_type)
-
-def presigned_url(key: str, expires_seconds: int = 3600) -> str:
-    from datetime import timedelta
-    return client().presigned_get_object(
-        settings.minio_bucket, key, expires=timedelta(seconds=expires_seconds)
-    )

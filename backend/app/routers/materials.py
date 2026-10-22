@@ -8,6 +8,9 @@ from ..models import Material, MaterialFile, AnonymousUser
 from ..schemas import MaterialOut, MaterialFileOut, MaterialListOut
 from ..auth import current_user
 from .. import storage
+from fastapi.responses import StreamingResponse
+from urllib.parse import quote
+from ..config import settings
 
 router = APIRouter(prefix="/materials", tags=["materials"])
 
@@ -52,7 +55,7 @@ async def create_material(
 
     # обновляем tsvector для FTS
     await db.execute(text(
-        "UPDATE materials SET search_tsv = to_tsvector('russian', coalesce(title,'') || ' ' || coalesce(description,'') || ' ' || coalesce(discipline,'')) WHERE id = :id"
+        "UPDATE materials SET search_tsv = to_tsvector('simple', coalesce(title,'') || ' ' || coalesce(description,'') || ' ' || coalesce(discipline,'')) WHERE id = :id"
     ), {"id": m.id})
 
     await db.commit()
@@ -87,7 +90,41 @@ def _to_out(m: Material) -> MaterialOut:
         files=[
             MaterialFileOut(
                 id=f.id, filename=f.filename, size=f.size,
-                mime_type=f.mime_type, url=storage.presigned_url(f.storage_key),
+                mime_type=f.mime_type, url=f"/api/materials/download/{f.storage_key}",
             ) for f in m.files
         ],
+    )
+
+@router.get("/download/{key:path}")
+async def download_file(key: str, db: AsyncSession = Depends(get_db)):
+    # Ищем инфу о файле в БД, чтобы узнать оригинальное имя
+    file_record = (await db.execute(
+        select(MaterialFile).where(MaterialFile.storage_key == key)
+    )).scalar_one_or_none()
+    
+    if not file_record:
+        raise HTTPException(404, "File not found")
+    
+    try:
+        # Получаем файл из MinIO
+        response = storage.client().get_object(settings.minio_bucket, key)
+    except Exception:
+        raise HTTPException(404, "File not found in storage")
+        
+    # Функция для потоковой отдачи файла (не грузим весь файл в память)
+    def iter_file():
+        try:
+            for chunk in response.stream(64 * 1024):
+                yield chunk
+        finally:
+            response.close()
+            response.release_conn()
+
+    # Кодируем имя файла для заголовка
+    filename_encoded = quote(file_record.filename)
+    
+    return StreamingResponse(
+        iter_file(), 
+        media_type=file_record.mime_type,
+        headers={"Content-Disposition": f"inline; filename*=UTF-8''{filename_encoded}"}
     )
