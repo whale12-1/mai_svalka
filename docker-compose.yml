@@ -55,6 +55,22 @@ services:
     volumes:
       - ./frontend:/app
 
+  bot:
+      build: ./backend
+      command: python -m app.bot
+      env_file: .env
+      depends_on: 
+        - db
+        - backend
+      volumes:
+        - ./backend:/app
+      environment:
+        # Используем SOCKS5 прокси (рекомендуется для Telegram)
+        - ALL_PROXY=socks5://host.docker.internal:10808
+        # Если SOCKS5 не работает, попробуй HTTP:
+        # - HTTP_PROXY=http://host.docker.internal:10809
+        # - HTTPS_PROXY=http://host.docker.internal:10809
+
 volumes:
   pgdata:
   miniodata:
