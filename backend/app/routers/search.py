@@ -5,8 +5,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db import get_db
 from ..schemas import SearchResponse, MaterialListOut
 from ..models import Material
+from ..ai_service import get_embedding, ask_gigachat
 
 router = APIRouter(prefix="/search", tags=["search"])
+
 
 @router.get("", response_model=SearchResponse)
 async def search(
@@ -67,3 +69,33 @@ async def search(
     ]
     
     return SearchResponse(items=items, total=total, page=page, page_size=page_size)
+
+@router.get("/ai")
+async def ai_search(
+    q: str = Query(..., description="Ваш вопрос"),
+    db: AsyncSession = Depends(get_db)
+):
+    # 1. Получаем вектор запроса (локально, бесплатно)
+    query_vector = get_embedding(q)
+    
+    # 2. Ищем ближайшие чанки в базе (косинусное расстояние)
+    sql = text("""
+        SELECT title, content_text, 1 - (content_vector <=> :vec) AS similarity
+        FROM materials
+        WHERE content_vector IS NOT NULL
+        ORDER BY content_vector <=> :vec
+        LIMIT 3
+    """)
+    rows = (await db.execute(sql, {"vec": str(query_vector)})).all()
+    
+    if not rows:
+        return {"answer": "В базе пока нет материалов с векторами. Загрузите PDF-файл для индексации.", "sources": []}
+
+    # 3. Собираем контекст и генерируем ответ через GigaChat
+    context_chunks = [f"Источник: {r.title}\nТекст: {r.content_text[:2000]}" for r in rows]
+    answer = await ask_gigachat(q, context_chunks)
+    
+    return {
+        "answer": answer,
+        "sources": [{"title": r.title, "similarity": round(r.similarity, 2)} for r in rows]
+    }

@@ -1,4 +1,5 @@
 import uuid
+from ..worker import process_pdf_file
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
 from sqlalchemy import select, func, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -129,3 +130,26 @@ async def download_file(key: str, db: AsyncSession = Depends(get_db)):
         media_type=file_record.mime_type,
         headers={"Content-Disposition": f"inline; filename*=UTF-8''{filename_encoded}"}
     )
+
+@router.post("/{mid}/reprocess")
+async def reprocess_material(mid: int, db: AsyncSession = Depends(get_db)):
+    # 1. Ищем материал
+    m = await db.get(Material, mid)
+    if not m:
+        raise HTTPException(404, "Material not found")
+        
+    # 2. Ищем привязанные к нему файлы
+    files = (await db.execute(select(MaterialFile).where(MaterialFile.material_id == mid))).scalars().all()
+    
+    if not files:
+        raise HTTPException(400, "No files found for this material")
+
+    # 3. Ставим статус "в обработке" и отправляем задачи в Celery
+    m.status = "processing"
+    await db.commit()
+
+    for f in files:
+        if f.mime_type == "application/pdf" or f.filename.endswith(".pdf"):
+            process_pdf_file.delay(m.id, f.storage_key)
+
+    return {"status": "ok", "message": f"Reprocessing started for {len(files)} files"}

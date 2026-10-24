@@ -33,7 +33,7 @@ class Material(Base):
     )
     status: Mapped[str] = mapped_column(String(20), default="ready")  # ready|processing|failed
     content_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    content_vector = mapped_column(Vector(1536), nullable=True)
+    content_vector = mapped_column(Vector(384), nullable=True)
     search_tsv = mapped_column(TSVECTOR, nullable=True)
 
     views: Mapped[int] = mapped_column(Integer, default=0)

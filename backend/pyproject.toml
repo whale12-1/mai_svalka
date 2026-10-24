@@ -19,4 +19,6 @@ dependencies = [
   "celery>=5.3",
   "redis>=5.0",
   "httpx[socks]>=0.27",
+  "pdfplumber>=0.11.0",           # <-- ДЛЯ ПАРСИНГА PDF
+  "psycopg2-binary>=2.9.9",
 ]
