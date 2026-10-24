@@ -5,7 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db import get_db
 from ..schemas import SearchResponse, MaterialListOut
 from ..models import Material
-from ..ai_service import get_embedding, ask_gigachat
+from ..ai_service import get_embedding, ask_gigachat, extract_search_keywords
+
 
 router = APIRouter(prefix="/search", tags=["search"])
 
@@ -33,9 +34,9 @@ async def search(
             search_query = " & ".join([f"{word}:*" for word in clean_q.split()])
             
             # Используем text() только для FTS-условия, привязывая параметр :q
-            stmt = stmt.where(text("search_tsv @@ to_tsquery('simple', :q)").bindparams(q=search_query))
+            stmt = stmt.where(text("search_tsv @@ to_tsquery('russian', :q)").bindparams(q=search_query))
             # Сортируем по релевантности (рангу)
-            stmt = stmt.order_by(text("ts_rank(search_tsv, to_tsquery('simple', :q)) DESC").bindparams(q=search_query))
+            stmt = stmt.order_by(text("ts_rank(search_tsv, to_tsquery('russian', :q)) DESC").bindparams(q=search_query))
         else:
             # Если ввели только спецсимволы, возвращаем пустоту
             return SearchResponse(items=[], total=0, page=page, page_size=page_size)
@@ -75,27 +76,73 @@ async def ai_search(
     q: str = Query(..., description="Ваш вопрос"),
     db: AsyncSession = Depends(get_db)
 ):
-    # 1. Получаем вектор запроса (локально, бесплатно)
-    query_vector = get_embedding(q)
+    # 1. Расширяем запрос через GigaChat (или берем оригинал)
+    search_keywords = await extract_search_keywords(q)
     
-    # 2. Ищем ближайшие чанки в базе (косинусное расстояние)
+    # 2. Векторный поиск
+    query_vector = get_embedding(search_keywords)
+    
+    # 3. ЖЕСТКАЯ ОЧИСТКА ОТ СТОП-СЛОВ (возвращаем то, что случайно удалили)
+    STOP_WORDS = {"что", "такое", "как", "где", "когда", "почему", "зачем", "это", "в", "на", "и", "с", "по", "для", "из", "от", "до", "не", "ни", "но", "или", "а", "же", "бы", "ли", "то", "так", "вы", "мы", "они", "она", "оно"}
+    words = re.findall(r'[а-яА-ЯёЁa-zA-Z0-9]+', search_keywords.lower())
+    
+    # Оставляем только слова длиннее 2 символов, которых нет в стоп-листе
+    fts_words = [w for w in words if w not in STOP_WORDS and len(w) > 2]
+    
+    # Если вдруг все слова оказались стоп-словами, берем просто длинные
+    if not fts_words:
+        fts_words = [w for w in words if len(w) > 2]
+        
+    # Склеиваем через OR (ИЛИ), чтобы найти хотя бы одно совпадение
+    fts_query = " OR ".join(fts_words) if fts_words else "ничего"
+    print(f"DEBUG FTS QUERY: '{fts_query}'")
+
     sql = text("""
-        SELECT title, content_text, 1 - (content_vector <=> :vec) AS similarity
-        FROM materials
-        WHERE content_vector IS NOT NULL
-        ORDER BY content_vector <=> :vec
-        LIMIT 3
+        WITH vector_matches AS (
+            SELECT id, ROW_NUMBER() OVER (ORDER BY embedding <=> CAST(:vec AS vector)) AS rank
+            FROM document_chunks
+            WHERE embedding IS NOT NULL
+            ORDER BY embedding <=> CAST(:vec AS vector)
+            LIMIT 20
+        ),
+        text_matches AS (
+            -- websearch_to_tsquery отлично понимает слово OR
+            SELECT id, ROW_NUMBER() OVER (ORDER BY ts_rank(search_tsv, websearch_to_tsquery('russian', :fts_q)) DESC) AS rank
+            FROM document_chunks
+            WHERE search_tsv @@ websearch_to_tsquery('russian', :fts_q)
+            LIMIT 20
+        )
+        SELECT m.title, c.content, 
+               (COALESCE(1.0 / (60 + v.rank), 0.0) + COALESCE(1.0 / (60 + t.rank), 0.0)) AS score
+        FROM document_chunks c
+        JOIN materials m ON m.id = c.material_id
+        LEFT JOIN vector_matches v ON v.id = c.id
+        LEFT JOIN text_matches t ON t.id = c.id
+        WHERE v.id IS NOT NULL OR t.id IS NOT NULL
+        ORDER BY score DESC
+        LIMIT 5
     """)
-    rows = (await db.execute(sql, {"vec": str(query_vector)})).all()
+    
+    rows = (await db.execute(sql, {"vec": str(query_vector), "fts_q": fts_query})).all()
     
     if not rows:
-        return {"answer": "В базе пока нет материалов с векторами. Загрузите PDF-файл для индексации.", "sources": []}
+        return {"answer": "В базе нет информации по этому запросу.", "sources": []}
 
-    # 3. Собираем контекст и генерируем ответ через GigaChat
-    context_chunks = [f"Источник: {r.title}\nТекст: {r.content_text[:2000]}" for r in rows]
+    context_chunks = [
+        f"Источник: {r.title}\nТекст фрагмента:\n{r.content}" 
+        for r in rows
+    ]
+    
     answer = await ask_gigachat(q, context_chunks)
+    sources = list({r.title for r in rows})
     
     return {
         "answer": answer,
-        "sources": [{"title": r.title, "similarity": round(r.similarity, 2)} for r in rows]
+        "sources": sources,
+        "debug_context": [
+            {
+                "score": round(r.score, 4), 
+                "text": r.content[:300]
+            } for r in rows
+        ]
     }

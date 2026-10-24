@@ -1,0 +1,12 @@
+FROM pgvector/pgvector:pg16
+
+# Устанавливаем пакет locales и генерируем русскую локаль
+RUN apt-get update && apt-get install -y locales && rm -rf /var/lib/apt/lists/*
+RUN localedef -i ru_RU -c -f UTF-8 -A /usr/share/locale/locale.alias ru_RU.UTF-8 \
+    && echo "ru_RU.UTF-8 UTF-8" >> /etc/locale.gen \
+    && locale-gen
+
+# Устанавливаем переменные окружения
+ENV LANG ru_RU.UTF-8
+ENV LANGUAGE ru_RU:ru
+ENV LC_ALL ru_RU.UTF-8

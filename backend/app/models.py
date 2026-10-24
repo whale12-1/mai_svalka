@@ -33,7 +33,7 @@ class Material(Base):
     )
     status: Mapped[str] = mapped_column(String(20), default="ready")  # ready|processing|failed
     content_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    content_vector = mapped_column(Vector(384), nullable=True)
+    # content_vector = mapped_column(Vector(384), nullable=True)
     search_tsv = mapped_column(TSVECTOR, nullable=True)
 
     views: Mapped[int] = mapped_column(Integer, default=0)
@@ -45,10 +45,10 @@ class Material(Base):
 
     files: Mapped[list["MaterialFile"]] = relationship(back_populates="material", cascade="all, delete-orphan")
 
+        # В классе Material оставляем только этот индекс:
     __table_args__ = (
         Index("ix_materials_search_tsv", "search_tsv", postgresql_using="gin"),
-        Index("ix_materials_vector", "content_vector", postgresql_using="hnsw",
-              postgresql_ops={"content_vector": "vector_cosine_ops"}),
+        # Строку про ix_materials_vector удаляем!
     )
 
 class MaterialFile(Base):
@@ -94,3 +94,21 @@ class Post(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     thread: Mapped[Thread] = relationship(back_populates="posts")
+
+class DocumentChunk(Base):
+    __tablename__ = "document_chunks"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    material_id: Mapped[int] = mapped_column(ForeignKey("materials.id", ondelete="CASCADE"), index=True)
+    
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    embedding = mapped_column(Vector(384), nullable=True) 
+    
+    # НОВАЯ КОЛОНКА: для полнотекстового поиска
+    search_tsv = mapped_column(TSVECTOR, nullable=True)
+
+    __table_args__ = (
+        Index("ix_chunks_embedding", "embedding", postgresql_using="hnsw",
+              postgresql_ops={"embedding": "vector_cosine_ops"}),
+        # НОВЫЙ ИНДЕКС: для быстрого FTS
+        Index("ix_chunks_search_tsv", "search_tsv", postgresql_using="gin"),
+    )

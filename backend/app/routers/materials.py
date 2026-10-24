@@ -1,5 +1,4 @@
 import uuid
-from ..worker import process_pdf_file
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
 from sqlalchemy import select, func, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -54,6 +53,9 @@ async def create_material(
                 storage_key=key, size=len(data),
                 mime_type=f.content_type or "application/octet-stream",
             ))
+            # ДОБАВЬ ИМПОРТ ЗДЕСЬ:
+            from ..worker import process_pdf_file
+            process_pdf_file.delay(m.id, key)
             
     # обновляем tsvector для FTS
     await db.execute(text(
@@ -150,6 +152,7 @@ async def reprocess_material(mid: int, db: AsyncSession = Depends(get_db)):
 
     for f in files:
         if f.mime_type == "application/pdf" or f.filename.endswith(".pdf"):
+            from ..worker import process_pdf_file
             process_pdf_file.delay(m.id, f.storage_key)
 
     return {"status": "ok", "message": f"Reprocessing started for {len(files)} files"}

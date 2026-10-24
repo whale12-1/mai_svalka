@@ -1,6 +1,7 @@
 import os
 from sentence_transformers import SentenceTransformer
 from gigachat import GigaChat
+import traceback
 
 # --- 1. Локальная модель для эмбеддингов ---
 # Загружаем легкую (34M) модель, которая отлично понимает русский язык
@@ -24,8 +25,12 @@ async def ask_gigachat(question: str, context_chunks: list[str]) -> str:
     """Отправляет вопрос и найденный контекст в GigaChat."""
     context = "\n\n---\n\n".join(context_chunks)
     system_prompt = (
-        "Ты — ассистент студенческой платформы. Отвечай на вопрос, опираясь ТОЛЬКО на предоставленный контекст. "
-        "Если в контексте нет ответа, вежливо скажи, что не знаешь. Старайся цитировать источники."
+        "Ты — ассистент студенческой платформы. Твоя задача — ответить на вопрос пользователя. "
+        "Сначала ищи ответ в предоставленном контексте из учебников. "
+        "Если в контексте есть точный ответ, используй его и сошлись на источник. "
+        "Если в контексте НЕТ ответа, но ты знаешь его из своих общих знаний, ОБЯЗАТЕЛЬНО начни ответ со слов: "
+        "'В загруженном учебнике нет этого, но я знаю следующее:' и дай ответ. "
+        "Если ты вообще не знаешь, о чем речь, честно скажи об этом."
     )
     user_prompt = f"Контекст:\n{context}\n\nВопрос: {question}"
 
@@ -37,3 +42,30 @@ async def ask_gigachat(question: str, context_chunks: list[str]) -> str:
         "temperature": 0.2,
     })
     return response.messages[0].content
+
+async def extract_search_keywords(question: str) -> str:
+    prompt = f"Напиши через запятую главные слова из этого вопроса, без лишних слов: {question}"
+    
+    try:
+        response = await giga.achat.create({
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.1,
+        })
+        
+        content = response.choices[0].message.content if hasattr(response, 'choices') else response.messages[0].content
+        
+        if isinstance(content, list):
+            keywords = " ".join([str(item.get("text", "")) for item in content if isinstance(item, dict)])
+        else:
+            keywords = str(content)
+            
+        keywords = keywords.replace('"', '').replace("'", "").strip()
+        
+        if not keywords:
+            return question
+            
+        print(f"DEBUG: GigaChat расширил: {keywords}")
+        return keywords
+        
+    except Exception as e:
+        return question
