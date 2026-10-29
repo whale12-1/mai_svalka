@@ -5,7 +5,7 @@ from celery import Celery
 from sqlalchemy import text, create_engine
 from .config import settings
 from . import storage
-from .ai_service import get_embedding
+from .ai_service import get_embedding, extract_metadata_from_text
 
 celery_app = Celery("hub", broker=settings.redis_url, backend=settings.redis_url)
 
@@ -62,7 +62,18 @@ def process_pdf_file(material_id: int, storage_key: str):
     except Exception as e:
         print(f"Ошибка парсинга PDF: {e}")
         return
-    # 3. Нарезаем на чанки
+    
+    # 3. Извлекаем метаданные через ИИ
+    print(f"Анализ метаданных для материала {material_id}...")
+    ai_meta = asyncio.run(extract_metadata_from_text(extracted_text))
+    
+    ai_title = ai_meta.get("title", "")
+    ai_disc = ai_meta.get("discipline", "")
+    ai_teacher = ai_meta.get("teacher", "")
+    ai_course = ai_meta.get("course")
+
+
+    # 4. Нарезаем на чанки
     chunks = split_text(extracted_text)
     print(f"Файл разбит на {len(chunks)} чанков.")
 
@@ -72,15 +83,23 @@ def process_pdf_file(material_id: int, storage_key: str):
     
     with engine.begin() as conn:
         # Очищаем старые чанки для этого файла (если делаем переобработку)
-        conn.execute(text("DELETE FROM document_chunks WHERE material_id = :id"), {"id": material_id})
-        
-        # Обновляем общий текст в материале
         conn.execute(text("""
             UPDATE materials 
             SET content_text = :extracted_text,
+                title = CASE WHEN title = '' OR title IS NULL THEN :ai_title ELSE title END,
+                discipline = CASE WHEN discipline = '' OR discipline IS NULL THEN :ai_disc ELSE discipline END,
+                teacher = CASE WHEN teacher = '' OR teacher IS NULL THEN :ai_teacher ELSE teacher END,
+                course = CASE WHEN course IS NULL THEN :ai_course ELSE course END,
                 search_tsv = to_tsvector('russian', coalesce(title,'') || ' ' || coalesce(description,'') || ' ' || coalesce(discipline,'') || ' ' || :extracted_text)
             WHERE id = :id
-        """), {"extracted_text": extracted_text, "id": material_id})
+        """), {
+            "extracted_text": extracted_text, 
+            "id": material_id,
+            "ai_title": ai_title,
+            "ai_disc": ai_disc,
+            "ai_teacher": ai_teacher,
+            "ai_course": ai_course
+        })
 
         # Генерируем векторы для каждого чанка и сохраняем
         for i, chunk in enumerate(chunks):

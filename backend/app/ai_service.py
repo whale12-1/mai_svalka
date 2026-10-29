@@ -2,7 +2,7 @@ import os
 from sentence_transformers import SentenceTransformer
 from gigachat import GigaChat
 import traceback
-
+import json
 # --- 1. Локальная модель для эмбеддингов ---
 # Загружаем легкую (34M) модель, которая отлично понимает русский язык
 print("Загрузка модели эмбеддингов USER2-small...")
@@ -69,3 +69,37 @@ async def extract_search_keywords(question: str) -> str:
         
     except Exception as e:
         return question
+
+async def extract_metadata_from_text(text: str) -> dict:
+    """Просит GigaChat извлечь метаданные из первых страниц документа."""
+    prompt = (
+        f"Проанализируй текст документа и извлеки метаданные. "
+        f"Верни ответ СТРОГО в формате JSON, без markdown-разметки (без ```json). "
+        f"Обязательные поля:\n"
+        f"- title: краткое название документа (до 100 символов)\n"
+        f"- discipline: название предмета (например, 'Математический анализ')\n"
+        f"- teacher: ФИО преподавателя (если есть, иначе пустая строка '')\n"
+        f"- course: номер курса (целое число от 1 до 6, если не удается определить - null)\n\n"
+        f"Текст:\n{text[:3000]}"
+    )
+    
+    try:
+        response = await giga.achat.create({
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.0,
+        })
+        
+        content = response.choices[0].message.content if hasattr(response, 'choices') else response.messages[0].content
+        
+        if isinstance(content, list):
+            content = "".join([str(item.get("text", "")) for item in content if isinstance(item, dict)])
+            
+        # Очищаем от возможной markdown-разметки
+        clean_json = str(content).replace("```json", "").replace("```", "").strip()
+        
+        data = json.loads(clean_json)
+        print(f"DEBUG: ИИ извлек метаданные: {data}")
+        return data
+    except Exception as e:
+        print(f"Ошибка извлечения метаданных: {e}")
+        return {}

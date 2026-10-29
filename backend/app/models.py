@@ -61,6 +61,7 @@ class MaterialFile(Base):
     mime_type: Mapped[str] = mapped_column(String(100), default="application/octet-stream")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     material: Mapped[Material] = relationship(back_populates="files")
+    file_hash = mapped_column(String(32), unique=True, nullable=True)
 
 class Vote(Base):
     __tablename__ = "votes"

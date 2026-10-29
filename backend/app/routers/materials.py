@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
 from sqlalchemy import select, func, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+import hashlib
 from ..db import get_db
 from ..models import Material, MaterialFile, AnonymousUser
 from ..schemas import MaterialOut, MaterialFileOut, MaterialListOut
@@ -46,16 +47,28 @@ async def create_material(
     if files:
         for f in files:
             data = await f.read()
+            
+            # Считаем хэш файла
+            file_hash = hashlib.md5(data).hexdigest()
+            
+            # Ищем, есть ли уже файл с таким хэшем в базе
+            existing_file = (await db.execute(
+                select(MaterialFile).where(MaterialFile.file_hash == file_hash)
+            )).scalar_one_or_none()
+            
+            if existing_file:
+                # Если файл уже есть, пропускаем его, но можно вернуть предупреждение
+                print(f"Файл {f.filename} уже есть в базе (дубликат)")
+                continue 
+                
             key = f"{uuid.uuid4().hex}/{f.filename}"
             storage.upload(key, data, f.content_type or "application/octet-stream")
             db.add(MaterialFile(
                 material_id=m.id, filename=f.filename,
                 storage_key=key, size=len(data),
+                file_hash=file_hash, # <-- Сохраняем хэш
                 mime_type=f.content_type or "application/octet-stream",
             ))
-            # ДОБАВЬ ИМПОРТ ЗДЕСЬ:
-            from ..worker import process_pdf_file
-            process_pdf_file.delay(m.id, key)
             
     # обновляем tsvector для FTS
     await db.execute(text(

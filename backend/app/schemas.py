@@ -42,7 +42,7 @@ class SearchResponse(BaseModel):
     total: int
     page: int
     page_size: int
-
+    message: str | None = None # <-- ДОБАВИТЬ ЭТУ СТРОКУ
 
 class PostCreate(BaseModel):
     content: str = Field(..., min_length=1)

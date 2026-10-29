@@ -1,6 +1,6 @@
 import re
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select, text, func
+from sqlalchemy import select, text, func, or_, case
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..db import get_db
 from ..schemas import SearchResponse, MaterialListOut
@@ -10,66 +10,103 @@ from ..ai_service import get_embedding, ask_gigachat, extract_search_keywords
 
 router = APIRouter(prefix="/search", tags=["search"])
 
-
 @router.get("", response_model=SearchResponse)
 async def search(
     q: str = Query("", description="query string"),
     discipline: str | None = None,
     type: str | None = None,
     course: int | None = None,
+    institute: str | None = None,
+    semester: int | None = None,
+    teacher: str | None = None,
     page: int = 1,
     page_size: int = 20,
     db: AsyncSession = Depends(get_db),
 ):
     offset = (page - 1) * page_size
-
-    # 1. Базовый запрос (SELECT * FROM materials)
     stmt = select(Material)
 
-    # 2. Добавляем полнотекстовый поиск, если есть запрос
+    # 1. Текстовый поиск (если есть)
     if q.strip():
         clean_q = re.sub(r'[^\w\s]', '', q, flags=re.UNICODE)
-        
         if clean_q.strip():
             search_query = " & ".join([f"{word}:*" for word in clean_q.split()])
-            
-            # Используем text() только для FTS-условия, привязывая параметр :q
             stmt = stmt.where(text("search_tsv @@ to_tsquery('russian', :q)").bindparams(q=search_query))
-            # Сортируем по релевантности (рангу)
+
+    # 2. Собираем условия фильтров и считаем их "вес"
+    filter_conditions = []
+    score_expr = 0
+
+    if discipline:
+        cond = Material.discipline.ilike(f"%{discipline}%")
+        filter_conditions.append(cond)
+        score_expr += case((cond, 1), else_=0)
+    if teacher:
+        cond = Material.teacher.ilike(f"%{teacher}%")
+        filter_conditions.append(cond)
+        score_expr += case((cond, 1), else_=0)
+    if institute:
+        cond = Material.institute.ilike(f"%{institute}%")
+        filter_conditions.append(cond)
+        score_expr += case((cond, 1), else_=0)
+    if course:
+        cond = Material.course == course
+        filter_conditions.append(cond)
+        score_expr += case((cond, 1), else_=0)
+    if semester:
+        cond = Material.semester == semester
+        filter_conditions.append(cond)
+        score_expr += case((cond, 1), else_=0)
+    if type:
+        cond = Material.type == type
+        filter_conditions.append(cond)
+        score_expr += case((cond, 1), else_=0)
+
+    fallback_message = None
+
+    # 3. Если фильтры заданы, применяем логику OR и сортируем по очкам
+    if filter_conditions:
+        stmt = stmt.where(or_(*filter_conditions))
+        stmt = stmt.add_columns(score_expr.label("match_score"))
+        
+        # Сортируем: сначала по количеству совпадений (убывание), потом по дате
+        stmt = stmt.order_by(text("match_score DESC"), Material.created_at.desc())
+        
+        fallback_message = "Показаны наиболее подходящие варианты (не по всем фильтрам есть точное совпадение)."
+    else:
+        # Если фильтров нет, просто сортируем по тексту или дате
+        if q.strip() and clean_q.strip():
             stmt = stmt.order_by(text("ts_rank(search_tsv, to_tsquery('russian', :q)) DESC").bindparams(q=search_query))
         else:
-            # Если ввели только спецсимволы, возвращаем пустоту
-            return SearchResponse(items=[], total=0, page=page, page_size=page_size)
-    else:
-        # Если поиска нет, сортируем по дате добавления
-        stmt = stmt.order_by(Material.created_at.desc())
+            stmt = stmt.order_by(Material.created_at.desc())
 
-    # 3. Динамически добавляем фильтры (если они не None)
-    if discipline:
-        stmt = stmt.where(Material.discipline == discipline)
-    if type:
-        stmt = stmt.where(Material.type == type)
-    if course:
-        stmt = stmt.where(Material.course == course)
-
-    # 4. Считаем общее количество строк (для пагинации)
-    # Оборачиваем наш запрос в подзапрос и считаем
+    # 4. Пагинация
     count_stmt = select(func.count()).select_from(stmt.subquery())
     total = (await db.execute(count_stmt)).scalar_one()
 
-    # 5. Применяем лимит и смещение, выполняем запрос
     stmt = stmt.offset(offset).limit(page_size)
-    materials = (await db.execute(stmt)).scalars().all()
-
-    # 6. Формируем ответ
-    items = [
-        MaterialListOut(
-            id=m.id, title=m.title, discipline=m.discipline, type=m.type,
-            tags=m.tags or [], score=m.score, created_at=m.created_at,
-        ) for m in materials
-    ]
     
-    return SearchResponse(items=items, total=total, page=page, page_size=page_size)
+    # 5. Выполняем запрос
+    results = (await db.execute(stmt)).all()
+    
+    # Так как мы добавили score_expr, результат возвращается как кортежи (Material, score)
+    items = []
+    for row in results:
+        m = row[0] # Первый элемент - это объект Material
+        items.append(
+            MaterialListOut(
+                id=m.id, title=m.title, discipline=m.discipline, type=m.type,
+                tags=m.tags or [], score=m.score, created_at=m.created_at,
+            )
+        )
+    
+    return SearchResponse(
+        items=items, 
+        total=total, 
+        page=page, 
+        page_size=page_size,
+        message=fallback_message if total > 0 else "Совсем ничего не найдено 😔"
+    )
 
 @router.get("/ai")
 async def ai_search(
