@@ -3,10 +3,10 @@ import { Link } from "react-router-dom";
 import { getThreads } from "../api";
 
 const CATEGORIES = [
-  { id: "free", label: "Свободное общение" },
-  { id: "teachers", label: "Преподаватели" },
-  { id: "solutions", label: "Разбор решений" },
-  { id: "specific_people", label: "Конкретные люди" },
+  { id: "free", label: "Свободное общение", short: "ОБЩЕНИЕ", icon: "✳", code: "01", color: "cyan", description: "Обсуждения обо всём" },
+  { id: "teachers", label: "Преподаватели", short: "ПРЕПОДАВАТЕЛИ", icon: "⌁", code: "02", color: "violet", description: "Вопросы и отзывы" },
+  { id: "solutions", label: "Разбор решений", short: "РАЗБОР РЕШЕНИЙ", icon: "⌘", code: "03", color: "orange", description: "Задачи вместе" },
+  { id: "specific_people", label: "Конкретные люди", short: "ЛЮДИ", icon: "◎", code: "04", color: "green", description: "Поиск и обсуждения" },
 ];
 
 export default function ForumPage() {
@@ -22,67 +22,70 @@ export default function ForumPage() {
       .finally(() => setLoading(false));
   }, [activeCategory]);
 
+  const active = CATEGORIES.find(c => c.id === activeCategory);
+
   return (
-    <div className="max-w-5xl mx-auto px-4 py-10 flex gap-8">
-      
-      {/* Боковая панель с категориями */}
-      <div className="w-64 flex-shrink-0">
-        <h2 className="text-xl font-bold mb-4">Разделы</h2>
-        <ul className="space-y-2">
-          {CATEGORIES.map(c => (
-            <li key={c.id}>
-              <button
-                onClick={() => setActiveCategory(c.id)}
-                className={`w-full text-left px-4 py-2 rounded-lg transition-colors ${
-                  activeCategory === c.id 
-                    ? "bg-blue-50 text-blue-700 font-medium" 
-                    : "hover:bg-gray-100 text-gray-700"
-                }`}
-              >
-                {c.label}
-              </button>
-            </li>
-          ))}
-        </ul>
-        
-        <Link 
-          to="/forum/new" 
-          className="mt-8 block w-full text-center bg-blue-600 text-white px-4 py-3 rounded-lg hover:bg-blue-700 font-medium transition-colors shadow-sm"
-        >
-          + Создать тему
-        </Link>
+    <div className="forum-page">
+      <div className="forum-heading-row">
+        <div>
+          <div className="forum-kicker"><span /> STUDENT DUMP / COMMUNITY</div>
+          <h1>Форум <span>сообщества</span></h1>
+          <p>Выбирай направление и подключайся к обсуждению.</p>
+        </div>
+        <Link to="/forum/new" className="forum-create-button"><span>＋</span> Создать тему</Link>
       </div>
 
-      {/* Список веток */}
-      <div className="flex-1">
-        <h1 className="text-3xl font-bold mb-6">
-          {CATEGORIES.find(c => c.id === activeCategory)?.label}
-        </h1>
-        
+      <section className="forum-categories" aria-label="Разделы форума">
+        {CATEGORIES.map(c => (
+          <button
+            key={c.id}
+            type="button"
+            onClick={() => setActiveCategory(c.id)}
+            aria-pressed={activeCategory === c.id}
+            className={`forum-category-tile tile-${c.color}${activeCategory === c.id ? " is-active" : ""}`}
+          >
+            <span className="tile-topline"><span>РАЗДЕЛ / {c.code}</span><span className="tile-indicator" /></span>
+            <span className="tile-icon" aria-hidden="true">{c.icon}</span>
+            <span className="tile-title">{c.label}</span>
+            <span className="tile-description">{c.description}</span>
+            <span className="tile-arrow" aria-hidden="true">↗</span>
+          </button>
+        ))}
+      </section>
+
+      <section className="forum-topics">
+        <div className="forum-topics-heading">
+          <div>
+            <div className="forum-kicker">АКТИВНЫЙ РАЗДЕЛ / {active?.code}</div>
+            <h2>{active?.label}</h2>
+          </div>
+          <span className="forum-topic-count">{loading ? "ЗАГРУЗКА…" : `${threads.length} ТЕМ`}</span>
+        </div>
+
         {loading ? (
-          <p className="text-gray-500">Загрузка тем...</p>
+          <div className="forum-empty-state">Загружаем обсуждения…</div>
         ) : threads.length === 0 ? (
-          <div className="bg-white border border-gray-200 rounded-xl p-8 text-center text-gray-500">
-            В этом разделе пока нет тем. Станьте первым!
+          <div className="forum-empty-state">
+            <span className="empty-state-symbol">＋</span>
+            <strong>Пока здесь тихо</strong>
+            <span>В этом разделе ещё нет тем. Создай первую и начни обсуждение.</span>
+            <Link to="/forum/new">Создать первую тему <span>↗</span></Link>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="forum-thread-list">
             {threads.map(t => (
-              <Link 
-                key={t.id} 
-                to={`/forum/${t.id}`}
-                className="block bg-white border border-gray-200 rounded-lg p-5 hover:shadow-md transition-shadow"
-              >
-                <h3 className="text-lg font-semibold text-blue-600 mb-1">{t.title}</h3>
-                <div className="text-sm text-gray-500 flex justify-between">
+              <Link key={t.id} to={`/forum/${t.id}`} className="forum-thread-card">
+                <span className="thread-mark">↗</span>
+                <span className="thread-content">
+                  <strong>{t.title}</strong>
                   <span>Создано: {new Date(t.created_at).toLocaleDateString("ru-RU")}</span>
-                  <span>{t.posts?.length || 0} ответов</span>
-                </div>
+                </span>
+                <span className="thread-replies">{t.posts?.length || 0} ответов</span>
               </Link>
             ))}
           </div>
         )}
-      </div>
+      </section>
     </div>
   );
 }

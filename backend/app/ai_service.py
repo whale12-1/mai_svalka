@@ -103,3 +103,65 @@ async def extract_metadata_from_text(text: str) -> dict:
     except Exception as e:
         print(f"Ошибка извлечения метаданных: {e}")
         return {}
+
+
+def extract_metadata_sync(text: str) -> dict:
+    import os
+    from gigachat import GigaChat
+    
+    local_giga = GigaChat(
+        base_url="https://api.giga.chat/v1",
+        credentials=os.getenv("GIGACHAT_CREDENTIALS"),
+        verify_ssl_certs=False,
+        model="GigaChat-2",
+    )
+    
+    prompt = (
+        f"Проанализируй текст документа. Верни строго 4 строки, без лишних слов и приветствий:\n"
+        f"Название: [название]\n"
+        f"Предмет: [предмет]\n"
+        f"Преподаватель: [ФИО или пусто]\n"
+        f"Курс: [номер или пусто]\n\n"
+        f"Текст:\n{text[:3000]}"
+    )
+    
+    try:
+        response = local_giga.chat.create({
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.0,
+        })
+        
+        # --- ИСПРАВЛЕНИЕ ПАРСИНГА ОБЪЕКТА ---
+        content = response.choices[0].message.content if hasattr(response, 'choices') else response.messages[0].content
+        
+        # Если вернулся список объектов (как в логах), склеиваем их текст
+        if isinstance(content, list):
+            content_str = "".join([str(getattr(c, 'text', '')) for c in content])
+        else:
+            content_str = str(content)
+
+        print(f"\n=== ОТВЕТ GIGACHAT ===\n{content_str}\n======================\n")
+
+        data = {}
+        for line in content_str.split('\n'):
+            if ':' in line:
+                k, v = line.split(':', 1)
+                k = k.strip().lower().replace('-', '').replace('*', '').replace('"', '').replace("'", "")
+                v = v.strip()
+                
+                # Если ИИ написал "Не указано" или "пусто" - считаем это пустой строкой
+                if v.lower() in ["не указано", "не указан", "пусто", "none", "null", "нет"]:
+                    v = ""
+
+                if 'название' in k: data['title'] = v
+                elif 'предмет' in k or 'дисциплина' in k: data['discipline'] = v
+                elif 'преподаватель' in k: data['teacher'] = v
+                elif 'курс' in k: 
+                    digits = ''.join(filter(str.isdigit, v))
+                    if digits: data['course'] = int(digits)
+
+        print(f"DEBUG: ИИ извлек метаданные: {data}")
+        return data
+    except Exception as e:
+        print(f"Ошибка извлечения метаданных: {e}")
+        return {}

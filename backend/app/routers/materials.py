@@ -47,17 +47,13 @@ async def create_material(
     if files:
         for f in files:
             data = await f.read()
-            
-            # Считаем хэш файла
             file_hash = hashlib.md5(data).hexdigest()
             
-            # Ищем, есть ли уже файл с таким хэшем в базе
             existing_file = (await db.execute(
                 select(MaterialFile).where(MaterialFile.file_hash == file_hash)
             )).scalar_one_or_none()
             
             if existing_file:
-                # Если файл уже есть, пропускаем его, но можно вернуть предупреждение
                 print(f"Файл {f.filename} уже есть в базе (дубликат)")
                 continue 
                 
@@ -66,9 +62,14 @@ async def create_material(
             db.add(MaterialFile(
                 material_id=m.id, filename=f.filename,
                 storage_key=key, size=len(data),
-                file_hash=file_hash, # <-- Сохраняем хэш
+                file_hash=file_hash,
                 mime_type=f.content_type or "application/octet-stream",
             ))
+            
+            # ВОТ ЭТА СТРОКА ЗАПУСКАЕТ ПАРСИНГ:
+            if f.content_type == "application/pdf" or f.filename.endswith(".pdf"):
+                from ..worker import process_pdf_file
+                process_pdf_file.delay(m.id, key)
             
     # обновляем tsvector для FTS
     await db.execute(text(

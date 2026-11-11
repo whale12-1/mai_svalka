@@ -1,3 +1,177 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+:root {
+  font-family: 'Manrope', Arial, sans-serif;
+  color: #e8f0ff;
+  background: #05080e;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  --bg: #05080e;
+  --panel: #0a111d;
+  --panel-2: #0d1726;
+  --line: rgba(125, 164, 220, .18);
+  --muted: #8291a8;
+  --blue: #075cff;
+  --cyan: #43a7ff;
+  --red: #ff4b55;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; min-width: 320px; background: var(--bg); color: #e8f0ff; }
+a { color: inherit; text-decoration: none; }
+button, input, textarea, select { font: inherit; }
+.app-shell { min-height: 100vh; overflow: hidden; background: radial-gradient(ellipse at 78% 12%, rgba(5, 54, 130, .13), transparent 36%), var(--bg); }
+.site-header { position: sticky; top: 0; z-index: 30; background: rgba(5,8,14,.88); backdrop-filter: blur(18px); border-bottom: 1px solid var(--line); }
+.site-nav { height: 76px; max-width: 1440px; padding: 0 5.2%; margin: auto; display:flex; align-items:center; justify-content:space-between; gap:28px; }
+.brand-lockup { display:flex; align-items:center; gap:12px; min-width: 230px; }
+.brand-mark { width:36px; height:36px; display:grid; place-items:center; border:1px solid #1978ff; color:#70baff; font:600 12px 'IBM Plex Mono',monospace; box-shadow:0 0 18px #075cff44; transform:rotate(-8deg); }
+.brand-name { letter-spacing:.16em; font-size:13px; font-weight:600; color:#dce9ff; }
+.brand-name b { color:#4aa7ff; font-weight:800; }
+.nav-links { display:flex; align-items:center; gap:34px; margin-left:auto; margin-right:24px; }
+.nav-links a { color:#98a8bf; font-size:13px; transition:color .2s; }
+.nav-links a:hover { color:#fff; }
+.nav-upload { padding:11px 16px; border:1px solid rgba(67,167,255,.48); color:#cce5ff; font-size:12px; letter-spacing:.02em; transition:.2s; }
+.nav-upload:hover { background:#075cff22; border-color:#43a7ff; }
+.nav-upload span { color:#43a7ff; font-size:17px; vertical-align:-1px; margin-right:5px; }
+.site-main { min-height:calc(100vh - 130px); }
+.site-footer { max-width:1440px; margin:auto; padding:24px 5.2%; display:flex; justify-content:space-between; color:#53647b; font:10px 'IBM Plex Mono',monospace; letter-spacing:.12em; border-top:1px solid var(--line); }
+
+.home-page { max-width:1440px; margin:auto; padding:0 5.2% 72px; }
+.hero-section { min-height:650px; display:grid; grid-template-columns: .92fr 1.08fr; align-items:stretch; border-bottom:1px solid var(--line); }
+.hero-copy { padding:112px 34px 52px 0; position:relative; z-index:2; }
+.eyebrow,.section-kicker { color:#56aaff; font:11px 'IBM Plex Mono',monospace; letter-spacing:.16em; }
+.status-dot { display:inline-block; width:7px; height:7px; margin-right:9px; border-radius:50%; background:#ff525c; box-shadow:0 0 12px #ff525c; }
+.hero-copy h1 { margin:28px 0 22px; font-size:clamp(42px,5.4vw,76px); line-height:1.02; letter-spacing:-.065em; font-weight:800; }
+.hero-copy h1 span { color:#55aaff; text-shadow:0 0 34px #075cff55; }
+.hero-description { max-width:500px; color:#91a0b6; font-size:15px; line-height:1.9; }
+.hero-actions { display:flex; flex-wrap:wrap; gap:12px; margin-top:34px; }
+.primary-action,.secondary-action { padding:15px 19px; font-size:12px; font-weight:700; letter-spacing:.02em; }
+.primary-action { background:linear-gradient(110deg,#075cff,#087bff); color:white; box-shadow:0 8px 28px #075cff33; }
+.primary-action span { margin-left:22px; }
+.secondary-action { border:1px solid var(--line); color:#b6c6dc; }
+.hero-meta { display:flex; gap:36px; margin-top:76px; }
+.hero-meta div { display:flex; flex-direction:column; gap:8px; }
+.hero-meta strong { color:#d8e7ff; font:18px 'IBM Plex Mono',monospace; }
+.hero-meta span { color:#64758c; font:9px 'IBM Plex Mono',monospace; letter-spacing:.1em; }
+.hero-visual { position:relative; min-height:650px; overflow:hidden; border-left:1px solid var(--line); background:#030712; }
+.hero-visual img { position:absolute; width:100%; height:100%; inset:0; object-fit:cover; object-position:center 48%; opacity:.94; filter:saturate(1.12) contrast(1.08); }
+.visual-vignette { position:absolute; inset:0; background:linear-gradient(90deg,#05080e 0%,transparent 25%),linear-gradient(0deg,#05080e66,transparent 32%,#05080e22); pointer-events:none; }
+.visual-cross { position:absolute; color:#64b8ff; font:18px 'IBM Plex Mono',monospace; opacity:.65; }
+.cross-one { top:16%; left:13%; }.cross-two { right:12%; bottom:24%; }
+.visual-index,.visual-caption { position:absolute; color:#8ea5c4; font:9px 'IBM Plex Mono',monospace; letter-spacing:.16em; }
+.visual-index { bottom:24px; left:26px; }.visual-caption { right:24px; bottom:23px; text-align:right; line-height:1.7; opacity:.7; }
+.search-section { padding:76px 0 58px; max-width:1000px; margin:auto; }
+.section-heading { display:flex; justify-content:space-between; align-items:end; margin-bottom:25px; gap:20px; }
+.section-heading h2 { margin:10px 0 0; font-size:32px; letter-spacing:-.04em; }
+.section-heading p { color:#72839a; font-size:12px; line-height:1.7; text-align:right; }
+.search-form { display:flex; align-items:center; gap:14px; padding:9px; border:1px solid rgba(67,167,255,.35); background:linear-gradient(110deg,#0a1422,#080e18); box-shadow:0 12px 40px #0005; }
+.search-symbol { padding:0 8px 0 12px; color:#55aaff; font-size:25px; }
+.search-form input { flex:1; min-width:0; border:0; outline:0; background:transparent; color:#eaf3ff; padding:13px 4px; font-size:13px; }
+.search-form input::placeholder { color:#5e6f86; }
+.search-form button { border:0; padding:14px 20px; color:white; background:#075cff; cursor:pointer; font-size:12px; font-weight:700; }
+.search-form button span { margin-left:16px; }.search-form button:disabled { opacity:.6; cursor:wait; }
+.results-list { margin-top:18px; display:grid; gap:10px; }
+.material-result { display:flex; align-items:center; gap:17px; padding:17px 19px; background:#0a111d; border:1px solid var(--line); transition:.2s; }
+.material-result:hover { border-color:#267bdb; transform:translateY(-1px); }
+.result-icon { width:40px; height:40px; display:grid; place-items:center; color:#56aaff; background:#075cff1c; font-size:20px; }
+.result-main { flex:1; min-width:0; }.result-main h3 { margin:0 0 8px; color:#e4efff; font-size:15px; }
+.result-meta { display:flex; flex-wrap:wrap; gap:8px; color:#72839a; font:10px 'IBM Plex Mono',monospace; }
+.result-meta span { padding:4px 7px; background:#111e30; }.result-arrow { color:#54aaff; }
+.empty-state { padding:24px; text-align:center; color:#8291a8; border:1px dashed var(--line); }
+.feature-strip { display:grid; grid-template-columns:repeat(3,1fr); border:1px solid var(--line); background:#080e18; }
+.feature-strip > div { padding:25px 27px; border-right:1px solid var(--line); }.feature-strip > div:last-child { border:0; }
+.feature-strip span { display:block; margin-bottom:16px; color:#4c9ff3; font:9px 'IBM Plex Mono',monospace; letter-spacing:.12em; }
+.feature-strip strong { font-size:15px; }.feature-strip p { color:#7889a0; font-size:12px; line-height:1.7; }
+.feature-strip a { color:#69b5ff; font-size:11px; }
+
+/* Общая тёмная тема для страниц материалов, загрузки и форума из версии товарища. */
+.site-main .bg-white { background:#0a111d !important; }
+.site-main .bg-gray-50 { background:#0d1726 !important; }
+.site-main .bg-gray-100 { background:#132033 !important; }
+.site-main .bg-blue-50, .site-main .bg-blue-50\/30 { background:#0c2340 !important; }
+.site-main .text-gray-900, .site-main .text-gray-800, .site-main .text-gray-700 { color:#dce8f8 !important; }
+.site-main .text-gray-600, .site-main .text-gray-500, .site-main .text-gray-400 { color:#8b9bb1 !important; }
+.site-main .text-blue-600, .site-main .text-blue-700 { color:#62b2ff !important; }
+.site-main .border-gray-100, .site-main .border-gray-200, .site-main .border-gray-300 { border-color:var(--line) !important; }
+.site-main input:not([type=file]), .site-main textarea, .site-main select { background:#080f1a !important; color:#e8f0ff !important; border-color:#263b56 !important; }
+.site-main input::placeholder, .site-main textarea::placeholder { color:#65758b !important; }
+.site-main button.bg-blue-600, .site-main a.bg-blue-600 { background:#075cff !important; color:white !important; }
+.site-main button.bg-gray-900 { background:#12335c !important; color:#eaf4ff !important; }
+.site-main .hover\:bg-gray-50:hover, .site-main .hover\:bg-gray-100:hover { background:#14243a !important; }
+.site-main .hover\:bg-blue-700:hover { background:#087bff !important; }
+.site-main .shadow-sm, .site-main .shadow-md { box-shadow:0 12px 35px #0004 !important; }
+.site-main .divide-gray-100 > :not([hidden]) ~ :not([hidden]) { border-color:var(--line) !important; }
+
+@media (max-width:900px) {
+  .hero-section { grid-template-columns:1fr; }
+  .hero-copy { padding:70px 0 42px; }
+  .hero-visual { min-height:520px; border-left:0; border-top:1px solid var(--line); }
+  .visual-vignette { background:linear-gradient(0deg,#05080e55,transparent 35%); }
+}
+@media (max-width:640px) {
+  .site-nav { height:66px; padding:0 18px; gap:12px; }
+  .brand-lockup { min-width:0; }.brand-name { font-size:10px; }
+  .nav-links { gap:14px; margin:0; }.nav-links a { font-size:11px; }
+  .nav-upload { padding:9px; font-size:0; }.nav-upload span { font-size:18px; margin:0; }
+  .home-page { padding:0 18px 44px; }
+  .hero-copy { padding-top:58px; }.hero-copy h1 { font-size:42px; }
+  .hero-description { font-size:13px; }.hero-meta { gap:18px; margin-top:50px; }
+  .hero-meta span { font-size:8px; }.hero-visual { min-height:410px; }
+  .section-heading { display:block; }.section-heading h2 { font-size:27px; }.section-heading p { text-align:left; }
+  .search-form { gap:5px; }.search-form button { padding:13px 12px; font-size:10px; }.search-form button span { margin-left:5px; }
+  .feature-strip { grid-template-columns:1fr; }.feature-strip > div { border-right:0; border-bottom:1px solid var(--line); }
+  .site-footer { padding:20px 18px; font-size:8px; gap:14px; }
+}
+
+
+/* Форум: неоновые квадратные плитки разделов */
+.forum-page { max-width: 1320px; margin: 0 auto; padding: 54px 5.2% 88px; }
+.forum-heading-row { display:flex; align-items:flex-end; justify-content:space-between; gap:24px; margin-bottom:34px; }
+.forum-kicker { display:flex; align-items:center; gap:9px; color:#65809f; font:10px 'IBM Plex Mono',monospace; letter-spacing:.16em; }
+.forum-kicker > span { width:6px; height:6px; border-radius:50%; background:#43a7ff; box-shadow:0 0 12px #43a7ff; }
+.forum-heading-row h1 { margin:14px 0 8px; color:#eaf3ff; font-size:clamp(30px,4vw,43px); line-height:1.08; letter-spacing:-.05em; }
+.forum-heading-row h1 span { color:#55aaff; }
+.forum-heading-row p { margin:0; color:#8291a8; font-size:13px; }
+.forum-create-button { display:inline-flex; align-items:center; gap:10px; padding:14px 19px; border:1px solid rgba(67,167,255,.48); background:linear-gradient(110deg,#075cff,#087bff); color:white; font-size:12px; font-weight:700; box-shadow:0 8px 28px #075cff33; transition:.2s; white-space:nowrap; }
+.forum-create-button:hover { transform:translateY(-2px); box-shadow:0 12px 32px #075cff55; }
+.forum-create-button > span { font-size:18px; line-height:12px; }
+.forum-categories { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:16px; }
+.forum-category-tile { --tile:#43cfff; --tile-rgb:67,207,255; position:relative; display:flex; flex-direction:column; align-items:flex-start; min-height:208px; padding:18px 19px 17px; overflow:hidden; border:1px solid rgba(var(--tile-rgb),.3); border-radius:3px; background:linear-gradient(145deg,rgba(var(--tile-rgb),.13),rgba(9,16,29,.96) 65%); color:#eaf3ff; text-align:left; cursor:pointer; transition:transform .22s,border-color .22s,box-shadow .22s,background .22s; }
+.forum-category-tile::before { content:""; position:absolute; width:150px; height:150px; right:-62px; bottom:-78px; border:1px solid rgba(var(--tile-rgb),.24); border-radius:50%; box-shadow:0 0 0 16px rgba(var(--tile-rgb),.035),0 0 0 34px rgba(var(--tile-rgb),.025); transition:transform .3s; }
+.forum-category-tile::after { content:""; position:absolute; left:0; top:0; width:100%; height:2px; background:var(--tile); box-shadow:0 0 14px var(--tile); opacity:.72; }
+.forum-category-tile:hover { transform:translateY(-4px); border-color:rgba(var(--tile-rgb),.75); box-shadow:0 12px 34px rgba(var(--tile-rgb),.12); }
+.forum-category-tile:hover::before { transform:scale(1.15); }
+.forum-category-tile.is-active { border-color:var(--tile); background:linear-gradient(145deg,rgba(var(--tile-rgb),.22),rgba(9,16,29,.96) 70%); box-shadow:inset 0 0 28px rgba(var(--tile-rgb),.07),0 0 25px rgba(var(--tile-rgb),.13); }
+.tile-cyan { --tile:#43d9ff; --tile-rgb:67,217,255; }
+.tile-violet { --tile:#ad83ff; --tile-rgb:173,131,255; }
+.tile-orange { --tile:#ff9c55; --tile-rgb:255,156,85; }
+.tile-green { --tile:#62f0b0; --tile-rgb:98,240,176; }
+.tile-topline { position:relative; z-index:1; display:flex; justify-content:space-between; width:100%; color:rgba(var(--tile-rgb),.8); font:9px 'IBM Plex Mono',monospace; letter-spacing:.13em; }
+.tile-indicator { width:6px; height:6px; border-radius:50%; background:var(--tile); box-shadow:0 0 10px var(--tile); opacity:.6; }
+.is-active .tile-indicator { opacity:1; }
+.tile-icon { position:relative; z-index:1; display:grid; place-items:center; width:49px; height:49px; margin:21px 0 13px; border:1px solid rgba(var(--tile-rgb),.45); background:rgba(var(--tile-rgb),.09); color:var(--tile); font-size:26px; text-shadow:0 0 16px var(--tile); }
+.tile-title { position:relative; z-index:1; font-size:15px; font-weight:800; letter-spacing:-.02em; }
+.tile-description { position:relative; z-index:1; margin-top:5px; color:#8291a8; font-size:10px; }
+.tile-arrow { position:absolute; z-index:1; right:18px; bottom:16px; color:var(--tile); font-size:17px; opacity:.8; }
+.forum-topics { margin-top:45px; }
+.forum-topics-heading { display:flex; align-items:flex-end; justify-content:space-between; gap:18px; padding-bottom:17px; border-bottom:1px solid var(--line); }
+.forum-topics-heading h2 { margin:9px 0 0; color:#e8f0ff; font-size:24px; letter-spacing:-.04em; }
+.forum-topic-count { color:#6e829d; font:9px 'IBM Plex Mono',monospace; letter-spacing:.12em; }
+.forum-empty-state { display:flex; flex-direction:column; align-items:center; gap:10px; margin-top:18px; padding:43px 20px; border:1px dashed rgba(125,164,220,.25); background:linear-gradient(135deg,#0a111d,#080e18); color:#8291a8; text-align:center; }
+.empty-state-symbol { display:grid; place-items:center; width:42px; height:42px; margin-bottom:4px; border:1px solid rgba(67,167,255,.35); color:#55aaff; font-size:24px; box-shadow:0 0 20px #075cff22; }
+.forum-empty-state strong { color:#dce8f8; font-size:15px; }
+.forum-empty-state > span:not(.empty-state-symbol) { font-size:12px; }
+.forum-empty-state a { margin-top:8px; padding:10px 14px; border:1px solid rgba(67,167,255,.4); color:#75bdff; font-size:11px; }
+.forum-empty-state a span { margin-left:12px; }
+.forum-thread-list { display:grid; gap:10px; margin-top:18px; }
+.forum-thread-card { display:flex; align-items:center; gap:16px; padding:17px 19px; border:1px solid var(--line); background:#0a111d; transition:.2s; }
+.forum-thread-card:hover { border-color:rgba(67,167,255,.55); transform:translateY(-1px); }
+.thread-mark { display:grid; place-items:center; width:36px; height:36px; border:1px solid rgba(67,167,255,.25); color:#55aaff; }
+.thread-content { display:flex; flex:1; min-width:0; flex-direction:column; gap:6px; }
+.thread-content strong { overflow:hidden; color:#e4efff; font-size:14px; text-overflow:ellipsis; white-space:nowrap; }
+.thread-content > span,.thread-replies { color:#72839a; font:10px 'IBM Plex Mono',monospace; }
+@media (max-width:900px) { .forum-categories { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media (max-width:640px) { .forum-page { padding:35px 18px 58px; } .forum-heading-row { align-items:flex-start; flex-direction:column; } .forum-create-button { width:100%; justify-content:center; } .forum-category-tile { min-height:184px; padding:15px; } .tile-icon { width:42px; height:42px; margin:16px 0 11px; } .tile-title { font-size:13px; } .tile-description { font-size:9px; } .forum-topics { margin-top:34px; } .forum-topics-heading h2 { font-size:20px; } .forum-thread-card { padding:13px; gap:10px; } .thread-replies { font-size:9px; } }

@@ -1,11 +1,12 @@
 import io
-import re  # <-- ВАЖНО: добавлен импорт для очистки текста
+import re
+import asyncio  # <--- ВОТ ЭТОТ ИМПОРТ БЫЛ ПРОПУЩЕН
 import fitz 
 from celery import Celery
 from sqlalchemy import text, create_engine
 from .config import settings
 from . import storage
-from .ai_service import get_embedding, extract_metadata_from_text
+from .ai_service import get_embedding, extract_metadata_sync
 
 celery_app = Celery("hub", broker=settings.redis_url, backend=settings.redis_url)
 
@@ -51,10 +52,9 @@ def process_pdf_file(material_id: int, storage_key: str):
         print(f"Ошибка скачивания: {e}")
         return
 
-    # 2. Извлекаем текст (ВОТ ЗДЕСЬ БЫЛА ОШИБКА)
-    extracted_text = ""  # <--- Эту строчку нельзя удалять!
+    # 2. Извлекаем текст
+    extracted_text = ""
     try:
-        # Открываем PDF из байтов через PyMuPDF
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
         for page in doc:
             extracted_text += page.get_text("text") + "\n\n"
@@ -63,26 +63,37 @@ def process_pdf_file(material_id: int, storage_key: str):
         print(f"Ошибка парсинга PDF: {e}")
         return
     
-    # 3. Извлекаем метаданные через ИИ
+    # Очищаем текст от мусора
+    extracted_text = clean_extracted_text(extracted_text)
+    
     print(f"Анализ метаданных для материала {material_id}...")
-    ai_meta = asyncio.run(extract_metadata_from_text(extracted_text))
+    ai_meta = extract_metadata_sync(extracted_text)
     
     ai_title = ai_meta.get("title", "")
     ai_disc = ai_meta.get("discipline", "")
     ai_teacher = ai_meta.get("teacher", "")
     ai_course = ai_meta.get("course")
 
-
     # 4. Нарезаем на чанки
-    chunks = split_text(extracted_text)
+    raw_chunks = split_text(extracted_text)
+    # Отсекаем пустые чанки
+    chunks = [c for c in raw_chunks if len(c.strip()) > 10]
+    
+    if not chunks:
+        print("Ошибка: после нарезки не осталось валидных чанков.")
+        return
+        
     print(f"Файл разбит на {len(chunks)} чанков.")
 
-    # 4. Сохраняем в БД
+    # 5. Сохраняем в БД
     sync_db_url = settings.database_url.replace("postgresql+asyncpg://", "postgresql+psycopg2://")
     engine = create_engine(sync_db_url)
     
     with engine.begin() as conn:
-        # Очищаем старые чанки для этого файла (если делаем переобработку)
+        # ОЧИЩАЕМ СТАРЫЕ ЧАНКИ (эта строка была случайно удалена)
+        conn.execute(text("DELETE FROM document_chunks WHERE material_id = :id"), {"id": material_id})
+        
+        # Обновляем текст и метаданные в материале
         conn.execute(text("""
             UPDATE materials 
             SET content_text = :extracted_text,
