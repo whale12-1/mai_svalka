@@ -4,6 +4,7 @@ from sqlalchemy import select, func, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 import hashlib
+from pydantic import BaseModel # <-- ДОБАВЛЕНО
 from ..db import get_db
 from ..models import Material, MaterialFile, AnonymousUser
 from ..schemas import MaterialOut, MaterialFileOut, MaterialListOut
@@ -15,6 +16,17 @@ from ..config import settings
 
 router = APIRouter(prefix="/materials", tags=["materials"])
 
+# Схема для PATCH-запроса
+class MaterialUpdate(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    discipline: str | None = None
+    institute: str | None = None
+    course: int | None = None
+    semester: int | None = None
+    teacher: str | None = None
+    type: str | None = None
+
 @router.post("", response_model=MaterialOut, status_code=201)
 async def create_material(
     title: str = Form(...),
@@ -25,11 +37,8 @@ async def create_material(
     semester: int | None = Form(None),
     teacher: str = Form(""),
     type: str = Form("other"),
-    tags: str = Form(""),  # comma-separated
-    
-    # ВОТ ГЛАВНОЕ ИЗМЕНЕНИЕ: Убираем list, делаем просто ОДИН файл
+    tags: str = Form(""), 
     files: list[UploadFile] = File(default=[]), 
-    
     db: AsyncSession = Depends(get_db),
     user: AnonymousUser = Depends(current_user),
 ):
@@ -38,12 +47,11 @@ async def create_material(
         title=title, description=description, discipline=discipline,
         institute=institute, course=course, semester=semester,
         teacher=teacher, type=type, tags=tag_list,
-        uploader_hash=user.token_hash, status="ready",
+        uploader_hash=user.token_hash, status="processing", # <-- СРАЗУ СТАВИМ PROCESSING
     )
     db.add(m)
     await db.flush()
 
-    # Обрабатываем ОДИН файл
     if files:
         for f in files:
             data = await f.read()
@@ -66,20 +74,50 @@ async def create_material(
                 mime_type=f.content_type or "application/octet-stream",
             ))
             
-            # ВОТ ЭТА СТРОКА ЗАПУСКАЕТ ПАРСИНГ:
             if f.content_type == "application/pdf" or f.filename.endswith(".pdf"):
                 from ..worker import process_pdf_file
                 process_pdf_file.delay(m.id, key)
             
-    # обновляем tsvector для FTS
+    # Исправляем simple на russian
     await db.execute(text(
-        "UPDATE materials SET search_tsv = to_tsvector('simple', coalesce(title,'') || ' ' || coalesce(description,'') || ' ' || coalesce(discipline,'')) WHERE id = :id"
+        "UPDATE materials SET search_tsv = to_tsvector('russian', coalesce(title,'') || ' ' || coalesce(description,'') || ' ' || coalesce(discipline,'')) WHERE id = :id"
     ), {"id": m.id})
 
     await db.commit()
 
     result = await db.execute(
         select(Material).where(Material.id == m.id).options(selectinload(Material.files))
+    )
+    m = result.scalar_one()
+    return _to_out(m)
+
+# --- НОВЫЙ ЭНДПОИНТ ДЛЯ РЕДАКТИРОВАНИЯ ---
+@router.patch("/{mid}", response_model=MaterialOut)
+async def update_material(
+    mid: int, 
+    data: MaterialUpdate, 
+    db: AsyncSession = Depends(get_db)
+):
+    m = await db.get(Material, mid)
+    if not m:
+        raise HTTPException(404, "Material not found")
+        
+    update_data = data.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(m, key, value)
+        
+    # Обновляем FTS-индекс после изменения
+    await db.execute(text("""
+        UPDATE materials 
+        SET search_tsv = to_tsvector('russian', coalesce(title,'') || ' ' || coalesce(description,'') || ' ' || coalesce(discipline,'')) 
+        WHERE id = :id
+    """), {"id": mid})
+
+    await db.commit()
+    
+    # Возвращаем обновленный материал
+    result = await db.execute(
+        select(Material).where(Material.id == mid).options(selectinload(Material.files))
     )
     m = result.scalar_one()
     return _to_out(m)
@@ -95,7 +133,7 @@ async def get_material(mid: int, db: AsyncSession = Depends(get_db)):
     await db.execute(update(Material).where(Material.id == mid).values(views=Material.views + 1))
     await db.commit()
     
-    m.views += 1  # Чтобы возвращался актуальный счетчик
+    m.views += 1
     return _to_out(m)
 
 def _to_out(m: Material) -> MaterialOut:
@@ -115,7 +153,6 @@ def _to_out(m: Material) -> MaterialOut:
 
 @router.get("/download/{key:path}")
 async def download_file(key: str, db: AsyncSession = Depends(get_db)):
-    # Ищем инфу о файле в БД, чтобы узнать оригинальное имя
     file_record = (await db.execute(
         select(MaterialFile).where(MaterialFile.storage_key == key)
     )).scalar_one_or_none()
@@ -124,12 +161,10 @@ async def download_file(key: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(404, "File not found")
     
     try:
-        # Получаем файл из MinIO
         response = storage.client().get_object(settings.minio_bucket, key)
     except Exception:
         raise HTTPException(404, "File not found in storage")
         
-    # Функция для потоковой отдачи файла (не грузим весь файл в память)
     def iter_file():
         try:
             for chunk in response.stream(64 * 1024):
@@ -138,7 +173,6 @@ async def download_file(key: str, db: AsyncSession = Depends(get_db)):
             response.close()
             response.release_conn()
 
-    # Кодируем имя файла для заголовка
     filename_encoded = quote(file_record.filename)
     
     return StreamingResponse(
@@ -149,18 +183,15 @@ async def download_file(key: str, db: AsyncSession = Depends(get_db)):
 
 @router.post("/{mid}/reprocess")
 async def reprocess_material(mid: int, db: AsyncSession = Depends(get_db)):
-    # 1. Ищем материал
     m = await db.get(Material, mid)
     if not m:
         raise HTTPException(404, "Material not found")
         
-    # 2. Ищем привязанные к нему файлы
     files = (await db.execute(select(MaterialFile).where(MaterialFile.material_id == mid))).scalars().all()
     
     if not files:
         raise HTTPException(400, "No files found for this material")
 
-    # 3. Ставим статус "в обработке" и отправляем задачи в Celery
     m.status = "processing"
     await db.commit()
 

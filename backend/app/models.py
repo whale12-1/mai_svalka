@@ -102,7 +102,7 @@ class DocumentChunk(Base):
     material_id: Mapped[int] = mapped_column(ForeignKey("materials.id", ondelete="CASCADE"), index=True)
     
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    embedding = mapped_column(Vector(384), nullable=True) 
+    embedding = mapped_column(Vector(1024), nullable=True)  
     
     # НОВАЯ КОЛОНКА: для полнотекстового поиска
     search_tsv = mapped_column(TSVECTOR, nullable=True)

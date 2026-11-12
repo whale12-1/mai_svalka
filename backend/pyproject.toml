@@ -22,4 +22,7 @@ dependencies = [
   "httpx[socks]>=0.27",
   "pdfplumber>=0.11.0",           # <-- ДЛЯ ПАРСИНГА PDF
   "psycopg2-binary>=2.9.9",
+  "pytesseract>=0.3.10",
+  "pdf2image>=1.17.0",
+  "Pillow>=10.0.0",
 ]

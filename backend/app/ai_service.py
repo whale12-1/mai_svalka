@@ -1,16 +1,21 @@
 import os
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import SentenceTransformer, CrossEncoder 
 from gigachat import GigaChat
 import traceback
 import json
+import difflib
 # --- 1. Локальная модель для эмбеддингов ---
 # Загружаем легкую (34M) модель, которая отлично понимает русский язык
-print("Загрузка модели эмбеддингов USER2-small...")
-embed_model = SentenceTransformer('deepvk/USER2-small')
+print("Загрузка модели эмбеддингов USER-bge-m3...")
+embed_model = SentenceTransformer('deepvk/USER-bge-m3')
+
 
 def get_embedding(text: str) -> list[float]:
     """Возвращает векторное представление текста (384 числа)."""
     return embed_model.encode(text).tolist()
+
+print("Загрузка реранкера DiTy/cross-encoder-russian-msmarco...")
+reranker_model = CrossEncoder('DiTy/cross-encoder-russian-msmarco', max_length=512)
 
 # --- 2. GigaChat для генерации ответов ---
 # Отключаем проверку SSL-сертификатов для упрощения тестов (в продакшене — только с сертификатами Минцифры)
@@ -25,12 +30,12 @@ async def ask_gigachat(question: str, context_chunks: list[str]) -> str:
     """Отправляет вопрос и найденный контекст в GigaChat."""
     context = "\n\n---\n\n".join(context_chunks)
     system_prompt = (
-        "Ты — ассистент студенческой платформы. Твоя задача — ответить на вопрос пользователя. "
-        "Сначала ищи ответ в предоставленном контексте из учебников. "
-        "Если в контексте есть точный ответ, используй его и сошлись на источник. "
-        "Если в контексте НЕТ ответа, но ты знаешь его из своих общих знаний, ОБЯЗАТЕЛЬНО начни ответ со слов: "
-        "'В загруженном учебнике нет этого, но я знаю следующее:' и дай ответ. "
-        "Если ты вообще не знаешь, о чем речь, честно скажи об этом."
+        "Ты — строгий академический ассистент. Твоя задача — ответить на вопрос, используя ТОЛЬКО предоставленный контекст.\n"
+        "Правила:\n"
+        "1. Если в контексте есть ответ, дай его и укажи, из какого документа он взят.\n"
+        "2. Если в контексте нет прямого ответа, но есть куски, которые позволяют его вывести — сделай это.\n"
+        "3. Если контекст не содержит нужной информации, честно напиши: 'В загруженных материалах нет ответа на этот вопрос. Но я знаю, что...' и дай ответ из своих знаний.\n"
+        "4. Не выдумывай факты, которых нет в тексте."
     )
     user_prompt = f"Контекст:\n{context}\n\nВопрос: {question}"
 
@@ -105,6 +110,22 @@ async def extract_metadata_from_text(text: str) -> dict:
         return {}
 
 
+# --- СПИСОК ДОПУСТИМЫХ ПРЕДМЕТОВ (ВУЗ) ---
+ALLOWED_DISCIPLINES = [
+    "Математический анализ",
+    "Линейная алгебра и геометрия",
+    "Дискретная математика",
+    "Теория вероятностей и математическая статистика",
+    "Физика",
+    "Информатика",
+    "Программирование",
+    "Базы данных",
+    "Операционные системы",
+    "Экономика",
+    "История",
+    "Другое" # Если предмет не подходит ни под одну категорию
+]
+
 def extract_metadata_sync(text: str) -> dict:
     import os
     from gigachat import GigaChat
@@ -116,12 +137,17 @@ def extract_metadata_sync(text: str) -> dict:
         model="GigaChat-2",
     )
     
+    # Формируем список для промпта
+    disciplines_str = "\n".join([f"- {d}" for d in ALLOWED_DISCIPLINES])
+
     prompt = (
         f"Проанализируй текст документа. Верни строго 4 строки, без лишних слов и приветствий:\n"
-        f"Название: [название]\n"
-        f"Предмет: [предмет]\n"
+        f"Название: [краткое название до 100 символов]\n"
+        f"Предмет: [выбери строго ОДИН из списка ниже]\n"
         f"Преподаватель: [ФИО или пусто]\n"
         f"Курс: [номер или пусто]\n\n"
+        f"СПИСОК ПРЕДМЕТОВ:\n{disciplines_str}\n\n"
+        f"Если ни один предмет не подходит, выбери 'Другое'. Не придумывай свои названия!\n\n"
         f"Текст:\n{text[:3000]}"
     )
     
@@ -131,16 +157,11 @@ def extract_metadata_sync(text: str) -> dict:
             "temperature": 0.0,
         })
         
-        # --- ИСПРАВЛЕНИЕ ПАРСИНГА ОБЪЕКТА ---
         content = response.choices[0].message.content if hasattr(response, 'choices') else response.messages[0].content
-        
-        # Если вернулся список объектов (как в логах), склеиваем их текст
         if isinstance(content, list):
             content_str = "".join([str(getattr(c, 'text', '')) for c in content])
         else:
             content_str = str(content)
-
-        print(f"\n=== ОТВЕТ GIGACHAT ===\n{content_str}\n======================\n")
 
         data = {}
         for line in content_str.split('\n'):
@@ -149,7 +170,6 @@ def extract_metadata_sync(text: str) -> dict:
                 k = k.strip().lower().replace('-', '').replace('*', '').replace('"', '').replace("'", "")
                 v = v.strip()
                 
-                # Если ИИ написал "Не указано" или "пусто" - считаем это пустой строкой
                 if v.lower() in ["не указано", "не указан", "пусто", "none", "null", "нет"]:
                     v = ""
 
@@ -159,6 +179,18 @@ def extract_metadata_sync(text: str) -> dict:
                 elif 'курс' in k: 
                     digits = ''.join(filter(str.isdigit, v))
                     if digits: data['course'] = int(digits)
+
+        # --- ПРОВЕРКА И КОРРЕКТИРОВКА ПРЕДМЕТА ---
+        if 'discipline' in data and data['discipline']:
+            llm_disc = data['discipline']
+            # Ищем максимально близкое совпадение из нашего списка (порог 0.4 для мягкости)
+            matches = difflib.get_close_matches(llm_disc, ALLOWED_DISCIPLINES, n=1, cutoff=0.4)
+            if matches:
+                # Если нашли близкое (например, ИИ написал "Матан", а в списке "Математический анализ")
+                data['discipline'] = matches[0]
+            else:
+                # Если совсем не то - ставим "Другое"
+                data['discipline'] = "Другое"
 
         print(f"DEBUG: ИИ извлек метаданные: {data}")
         return data

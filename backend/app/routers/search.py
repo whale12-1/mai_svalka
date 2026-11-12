@@ -1,14 +1,20 @@
 import re
+import json
+import hashlib
+import redis.asyncio as redis  # <-- ДОБАВЛЕНО ДЛЯ КЭША
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select, text, func, or_, case
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..db import get_db
 from ..schemas import SearchResponse, MaterialListOut
 from ..models import Material
-from ..ai_service import get_embedding, ask_gigachat, extract_search_keywords
-
+from ..config import settings # <-- ДЛЯ REDIS_URL
+from ..ai_service import get_embedding, ask_gigachat, extract_search_keywords, reranker_model
 
 router = APIRouter(prefix="/search", tags=["search"])
+
+# Инициализируем клиент Redis (он будет переиспользоваться)
+redis_client = redis.from_url(settings.redis_url, decode_responses=True)
 
 @router.get("", response_model=SearchResponse)
 async def search(
@@ -23,17 +29,16 @@ async def search(
     page_size: int = 20,
     db: AsyncSession = Depends(get_db),
 ):
+    # ... (код функции search остается без изменений, как в твоем файле) ...
     offset = (page - 1) * page_size
     stmt = select(Material)
 
-    # 1. Текстовый поиск (если есть)
     if q.strip():
         clean_q = re.sub(r'[^\w\s]', '', q, flags=re.UNICODE)
         if clean_q.strip():
             search_query = " & ".join([f"{word}:*" for word in clean_q.split()])
             stmt = stmt.where(text("search_tsv @@ to_tsquery('russian', :q)").bindparams(q=search_query))
 
-    # 2. Собираем условия фильтров и считаем их "вес"
     filter_conditions = []
     score_expr = 0
 
@@ -64,35 +69,26 @@ async def search(
 
     fallback_message = None
 
-    # 3. Если фильтры заданы, применяем логику OR и сортируем по очкам
     if filter_conditions:
         stmt = stmt.where(or_(*filter_conditions))
         stmt = stmt.add_columns(score_expr.label("match_score"))
-        
-        # Сортируем: сначала по количеству совпадений (убывание), потом по дате
         stmt = stmt.order_by(text("match_score DESC"), Material.created_at.desc())
-        
         fallback_message = "Показаны наиболее подходящие варианты (не по всем фильтрам есть точное совпадение)."
     else:
-        # Если фильтров нет, просто сортируем по тексту или дате
         if q.strip() and clean_q.strip():
             stmt = stmt.order_by(text("ts_rank(search_tsv, to_tsquery('russian', :q)) DESC").bindparams(q=search_query))
         else:
             stmt = stmt.order_by(Material.created_at.desc())
 
-    # 4. Пагинация
     count_stmt = select(func.count()).select_from(stmt.subquery())
     total = (await db.execute(count_stmt)).scalar_one()
 
     stmt = stmt.offset(offset).limit(page_size)
-    
-    # 5. Выполняем запрос
     results = (await db.execute(stmt)).all()
     
-    # Так как мы добавили score_expr, результат возвращается как кортежи (Material, score)
     items = []
     for row in results:
-        m = row[0] # Первый элемент - это объект Material
+        m = row[0]
         items.append(
             MaterialListOut(
                 id=m.id, title=m.title, discipline=m.discipline, type=m.type,
@@ -113,27 +109,30 @@ async def ai_search(
     q: str = Query(..., description="Ваш вопрос"),
     db: AsyncSession = Depends(get_db)
 ):
-    # 1. Расширяем запрос через GigaChat (или берем оригинал)
+    # 0. ПРОВЕРКА КЭША REDIS
+    cache_key = f"ai_answer:{hashlib.md5(q.lower().encode()).hexdigest()}"
+    try:
+        cached = await redis_client.get(cache_key)
+        if cached:
+            print(f"DEBUG: Отдаем ответ из кэша для вопроса: '{q}'")
+            return json.loads(cached)
+    except Exception as e:
+        print(f"Ошибка Redis (чтение): {e}")
+
+    # 1. Расширяем запрос через GigaChat
     search_keywords = await extract_search_keywords(q)
-    
-    # 2. Векторный поиск
     query_vector = get_embedding(search_keywords)
     
-    # 3. ЖЕСТКАЯ ОЧИСТКА ОТ СТОП-СЛОВ (возвращаем то, что случайно удалили)
+    # 2. ЖЕСТКАЯ ОЧИСТКА ОТ СТОП-СЛОВ
     STOP_WORDS = {"что", "такое", "как", "где", "когда", "почему", "зачем", "это", "в", "на", "и", "с", "по", "для", "из", "от", "до", "не", "ни", "но", "или", "а", "же", "бы", "ли", "то", "так", "вы", "мы", "они", "она", "оно"}
     words = re.findall(r'[а-яА-ЯёЁa-zA-Z0-9]+', search_keywords.lower())
-    
-    # Оставляем только слова длиннее 2 символов, которых нет в стоп-листе
     fts_words = [w for w in words if w not in STOP_WORDS and len(w) > 2]
-    
-    # Если вдруг все слова оказались стоп-словами, берем просто длинные
     if not fts_words:
         fts_words = [w for w in words if len(w) > 2]
         
-    # Склеиваем через OR (ИЛИ), чтобы найти хотя бы одно совпадение
     fts_query = " OR ".join(fts_words) if fts_words else "ничего"
-    print(f"DEBUG FTS QUERY: '{fts_query}'")
 
+    # 3. Ищем 20 кандидатов
     sql = text("""
         WITH vector_matches AS (
             SELECT id, ROW_NUMBER() OVER (ORDER BY embedding <=> CAST(:vec AS vector)) AS rank
@@ -143,7 +142,6 @@ async def ai_search(
             LIMIT 20
         ),
         text_matches AS (
-            -- websearch_to_tsquery отлично понимает слово OR
             SELECT id, ROW_NUMBER() OVER (ORDER BY ts_rank(search_tsv, websearch_to_tsquery('russian', :fts_q)) DESC) AS rank
             FROM document_chunks
             WHERE search_tsv @@ websearch_to_tsquery('russian', :fts_q)
@@ -157,7 +155,7 @@ async def ai_search(
         LEFT JOIN text_matches t ON t.id = c.id
         WHERE v.id IS NOT NULL OR t.id IS NOT NULL
         ORDER BY score DESC
-        LIMIT 5
+        LIMIT 20
     """)
     
     rows = (await db.execute(sql, {"vec": str(query_vector), "fts_q": fts_query})).all()
@@ -165,21 +163,39 @@ async def ai_search(
     if not rows:
         return {"answer": "В базе нет информации по этому запросу.", "sources": []}
 
+    # 4. МАГИЯ РЕРАНКЕРА
+    pairs = [[q, r.content] for r in rows]
+    rerank_scores = reranker_model.predict(pairs)
+    reranked_rows = sorted(zip(rows, rerank_scores), key=lambda x: x[1], reverse=True)
+    
+    # Берем ТОП-3 (исправлен баг, раньше было 5)
+    top_rows = [item[0] for item in reranked_rows[:3]]
+    print(f"DEBUG: Реранкер отобрал 3 лучших куска из {len(rows)} кандидатов.")
+
+    # 5. Формируем контекст и отправляем в GigaChat
     context_chunks = [
         f"Источник: {r.title}\nТекст фрагмента:\n{r.content}" 
-        for r in rows
+        for r in top_rows
     ]
     
     answer = await ask_gigachat(q, context_chunks)
-    sources = list({r.title for r in rows})
+    sources = list({r.title for r in top_rows})
     
-    return {
+    result = {
         "answer": answer,
         "sources": sources,
         "debug_context": [
             {
-                "score": round(r.score, 4), 
+                "rerank_score": round(float(score), 4), 
                 "text": r.content[:300]
-            } for r in rows
+            } for r, score in reranked_rows[:3]
         ]
     }
+
+    # 6. СОХРАНЯЕМ В КЭШ НА 24 ЧАСА (86400 секунд)
+    try:
+        await redis_client.set(cache_key, json.dumps(result), ex=86400)
+    except Exception as e:
+        print(f"Ошибка Redis (запись): {e}")
+
+    return result
